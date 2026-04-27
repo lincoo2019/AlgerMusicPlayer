@@ -44,7 +44,9 @@ const resolveCachedPlaybackUrl = async (
       source: songData.source,
       url,
       title: songData.name,
-      artist: getSongArtistText(songData)
+      artist: getSongArtistText(songData),
+      albumName: songData.al?.name || songData.song?.album?.name || '',
+      picUrl: songData.picUrl || songData.al?.picUrl || ''
     })) as DiskCacheResolveResult;
 
     if (result?.url) {

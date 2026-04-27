@@ -3,7 +3,9 @@ import { createHash } from 'node:crypto';
 import axios from 'axios';
 import { app, ipcMain } from 'electron';
 import Store from 'electron-store';
+import { FlacTagMap, writeFlacTags } from 'flac-tagger';
 import * as fs from 'fs';
+import * as NodeID3 from 'node-id3';
 import * as path from 'path';
 
 import { getStore } from './config';
@@ -57,6 +59,8 @@ type ResolveMusicUrlPayload = {
   url: string;
   title?: string;
   artist?: string;
+  albumName?: string;
+  picUrl?: string;
 };
 
 type ResolveMusicUrlResult = {
@@ -752,6 +756,97 @@ class DiskCacheManager {
     this.setLyricEntries(entries);
   }
 
+  private buildDisplayFilename(payload: ResolveMusicUrlPayload): string {
+    if (payload.title) {
+      const sanitizedTitle = payload.title
+        .replace(/[<>:"/\\|?*]/g, '_')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (payload.artist) {
+        const sanitizedArtist = payload.artist
+          .replace(/[<>:"/\\|?*]/g, '_')
+          .replace(/\s+/g, ' ')
+          .trim();
+        return `${sanitizedTitle} - ${sanitizedArtist}`;
+      }
+      return sanitizedTitle;
+    }
+    return String(payload.songId);
+  }
+
+  private async writeMetadata(
+    filePath: string,
+    payload: ResolveMusicUrlPayload,
+    extension: string
+  ): Promise<void> {
+    if (!payload.title) return;
+
+    const artistNames = payload.artist || '';
+    const albumName = payload.albumName || payload.title;
+    const fileFormat = extension.toLowerCase();
+
+    let coverImageBuffer: Buffer | null = null;
+    if (payload.picUrl) {
+      try {
+        const picUrl = payload.picUrl.startsWith('http://')
+          ? payload.picUrl.replace('http://', 'https://')
+          : payload.picUrl;
+        const coverResponse = await axios({
+          url: picUrl,
+          method: 'GET',
+          responseType: 'arraybuffer',
+          timeout: 10000
+        });
+        coverImageBuffer = Buffer.from(coverResponse.data);
+      } catch (coverErr) {
+        console.warn(`[DiskCache] 下载封面失败: ${coverErr}`);
+      }
+    }
+
+    if (['.mp3'].includes(fileFormat)) {
+      try {
+        NodeID3.removeTags(filePath);
+        const tags: any = {
+          title: payload.title,
+          artist: artistNames,
+          TPE1: artistNames,
+          TPE2: artistNames,
+          album: albumName
+        };
+        if (coverImageBuffer) {
+          tags.APIC = {
+            imageBuffer: coverImageBuffer,
+            type: { id: 3, name: 'front cover' },
+            description: 'Album cover',
+            mime: 'image/jpeg'
+          };
+        }
+        NodeID3.write(tags, filePath);
+      } catch (err) {
+        console.warn(`[DiskCache] 写入ID3标签失败:`, err);
+      }
+    } else if (['.flac'].includes(fileFormat)) {
+      try {
+        const tagMap: FlacTagMap = {
+          TITLE: payload.title,
+          ARTIST: artistNames,
+          ALBUM: albumName
+        };
+        await writeFlacTags(
+          {
+            tagMap,
+            picture: coverImageBuffer
+              ? { buffer: coverImageBuffer, mime: 'image/jpeg' }
+              : undefined
+          },
+          filePath
+        );
+      } catch (err) {
+        console.warn(`[DiskCache] 写入FLAC标签失败:`, err);
+      }
+    }
+  }
+
   private async getCachedMusicUrl(payload: ResolveMusicUrlPayload): Promise<string | null> {
     const key = this.buildMusicKey(payload.songId, payload.source);
     const entries = this.getMusicEntries();
@@ -820,7 +915,8 @@ class DiskCacheManager {
       });
 
       const extension = this.resolveAudioExtension(payload.url, contentType);
-      const filePath = path.join(musicDir, `${key}_${urlHash}${extension}`);
+      const displayName = this.buildDisplayFilename(payload);
+      const filePath = path.join(musicDir, `${key}_${urlHash}_${displayName}${extension}`);
 
       if (fs.existsSync(filePath)) {
         await fs.promises.unlink(tempFilePath);
@@ -834,6 +930,12 @@ class DiskCacheManager {
         fs.existsSync(existingEntry.filePath)
       ) {
         await fs.promises.unlink(existingEntry.filePath);
+      }
+
+      try {
+        await this.writeMetadata(filePath, payload, extension);
+      } catch (metaErr) {
+        console.warn(`[DiskCache] 写入元数据失败（不影响缓存）: ${payload.songId}`, metaErr);
       }
 
       const size = fs.statSync(filePath).size;
