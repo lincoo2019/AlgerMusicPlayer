@@ -167,6 +167,7 @@ const playlists = ref<any[]>([]);
 const expandedIds = ref(new Set<number>());
 
 const PLACEHOLDER_PREFIX = '__custom_placeholder__';
+const resolvingSet = new Set<string>();
 
 function makePlaceholderId(songStr: string): string {
   return `${PLACEHOLDER_PREFIX}${songStr}`;
@@ -220,15 +221,21 @@ async function resolvePlaceholder(songStr: string): Promise<SongResult | null> {
   return null;
 }
 
-async function ensureResolved(song: SongResult): Promise<SongResult | null> {
+async function resolveInList(song: SongResult): Promise<SongResult | null> {
   if (!isPlaceholder(song)) return song;
+
+  const pid = String(song.id);
+  if (resolvingSet.has(pid)) return null;
+  resolvingSet.add(pid);
 
   const songStr = placeholderToSongStr(song);
   const realSong = await resolvePlaceholder(songStr);
 
+  resolvingSet.delete(pid);
+
   if (realSong) {
     const list = [...playerStore.playList];
-    const idx = list.findIndex((s: SongResult) => String(s.id) === String(song.id));
+    const idx = list.findIndex((s: SongResult) => String(s.id) === pid);
     if (idx !== -1) {
       list[idx] = realSong;
       playerStore.setPlayList(list, true);
@@ -236,8 +243,29 @@ async function ensureResolved(song: SongResult): Promise<SongResult | null> {
     return realSong;
   }
 
-  message.warning(`未找到: ${songName}`);
+  const list = [...playerStore.playList];
+  const idx = list.findIndex((s: SongResult) => String(s.id) === pid);
+  if (idx !== -1) {
+    list.splice(idx, 1);
+    playerStore.setPlayList(list, true);
+  }
   return null;
+}
+
+function preloadAround(currentIndex: number) {
+  const list = playerStore.playList;
+  if (!list || list.length === 0) return;
+
+  const indices: number[] = [];
+  if (currentIndex + 1 < list.length) indices.push(currentIndex + 1);
+  if (currentIndex + 2 < list.length) indices.push(currentIndex + 2);
+  if (currentIndex - 1 >= 0) indices.push(currentIndex - 1);
+
+  for (const i of indices) {
+    if (isPlaceholder(list[i])) {
+      resolveInList(list[i]);
+    }
+  }
 }
 
 let stopWatch: (() => void) | null = null;
@@ -316,12 +344,12 @@ async function playAll(pl: any) {
   if (pl.songs.length === 0) return;
 
   const placeholderList: SongResult[] = pl.songs.map((s: string) => makePlaceholderSong(s));
-
   playerStore.setPlayList(placeholderList, false);
 
   const firstSong = placeholderList[0];
-  const realSong = await ensureResolved(firstSong);
+  const realSong = await resolveInList(firstSong);
   if (realSong) {
+    preloadAround(0);
     await playTrack(realSong, true);
     message.success(`已加载歌单「${pl.name}」，共 ${pl.songs.length} 首，播放时自动搜索`);
   } else {
@@ -423,18 +451,27 @@ onMounted(() => {
   if (saved) serverUrl.value = saved;
 
   const stopWatcher = watch(
-    () => playerStore.playMusic,
-    async (song) => {
-      if (song && isPlaceholder(song) && playerStore.play) {
-        const realSong = await ensureResolved(song);
-        if (realSong) {
-          await playTrack(realSong, true);
-        } else {
-          playerStore.nextPlay();
-        }
+    () => playerStore.playMusic?.id,
+    () => {
+      const list = playerStore.playList;
+      if (!list || list.length === 0) return;
+
+      const currentId = playerStore.playMusic?.id;
+      const currentIdx = list.findIndex((s: SongResult) => String(s.id) === String(currentId));
+      if (currentIdx >= 0) {
+        preloadAround(currentIdx);
       }
-    },
-    { deep: true }
+
+      if (playerStore.playMusic && isPlaceholder(playerStore.playMusic)) {
+        resolveInList(playerStore.playMusic).then((realSong) => {
+          if (realSong) {
+            playTrack(realSong, true);
+          } else {
+            playerStore.nextPlay();
+          }
+        });
+      }
+    }
   );
 
   stopWatch = stopWatcher;
