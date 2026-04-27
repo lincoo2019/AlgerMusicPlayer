@@ -145,36 +145,11 @@
         </div>
       </div>
     </n-scrollbar>
-
-    <n-modal v-model:show="showPlayingToast" :mask-closable="true" preset="card" class="!max-w-xs !rounded-2xl" :bordered="false">
-      <div class="flex items-center gap-3 py-2">
-        <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-          <i class="ri-music-2-line text-primary text-lg"></i>
-        </div>
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-gray-900 dark:text-white truncate">正在搜索播放</p>
-          <p class="text-xs text-gray-400 truncate">{{ playingSongName }}</p>
-        </div>
-        <n-spin v-if="searching" :size="14" class="ml-auto flex-shrink-0" />
-        <i v-else class="ri-check-line text-green-500 text-lg ml-auto flex-shrink-0"></i>
-      </div>
-    </n-modal>
-
-    <n-modal v-model:show="batchProgress.active" :mask-closable="false" preset="card" class="!max-w-xs !rounded-2xl" :bordered="false">
-      <div class="flex items-center gap-3 py-2">
-        <n-spin :size="20" class="flex-shrink-0" />
-        <div class="min-w-0 flex-1">
-          <p class="text-sm font-medium text-gray-900 dark:text-white">正在搜索歌单</p>
-          <p class="text-xs text-gray-400 mt-0.5">{{ batchProgress.current }} / {{ batchProgress.total }}</p>
-          <n-progress :percentage="Math.round((batchProgress.current / batchProgress.total) * 100)" :show-indicator="false" :height="4" :border-radius="2" class="mt-2" />
-        </div>
-      </div>
-    </n-modal>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, watch, onMounted, onUnmounted } from 'vue';
 import { useMessage } from 'naive-ui';
 
 import { getSearch } from '@/api/search';
@@ -190,10 +165,82 @@ const wsConnected = ref(false);
 const loading = ref(false);
 const playlists = ref<any[]>([]);
 const expandedIds = ref(new Set<number>());
-const showPlayingToast = ref(false);
-const playingSongName = ref('');
-const searching = ref(false);
-const batchProgress = ref({ current: 0, total: 0, active: false });
+
+const PLACEHOLDER_PREFIX = '__custom_placeholder__';
+
+function makePlaceholderId(songStr: string): string {
+  return `${PLACEHOLDER_PREFIX}${songStr}`;
+}
+
+function isPlaceholder(song: any): boolean {
+  return String(song.id).startsWith(PLACEHOLDER_PREFIX);
+}
+
+function placeholderToSongStr(song: any): string {
+  return String(song.id).slice(PLACEHOLDER_PREFIX.length);
+}
+
+function makePlaceholderSong(songStr: string): SongResult {
+  const songName = parseSongName(songStr);
+  const artist = parseArtist(songStr);
+  return {
+    id: makePlaceholderId(songStr),
+    name: songName,
+    picUrl: '',
+    ar: artist ? [{ id: 0, name: artist }] : [],
+    al: { id: 0, name: '', picUrl: '' },
+    source: 'netease',
+    count: 0,
+  };
+}
+
+async function resolvePlaceholder(songStr: string): Promise<SongResult | null> {
+  const songName = parseSongName(songStr);
+  const artist = parseArtist(songStr);
+  const keyword = artist ? `${songName} ${artist}` : songName;
+
+  try {
+    const { data } = await getSearch({ keywords: keyword, type: 1, limit: 1 });
+    const songs = data?.result?.songs;
+    if (songs && songs.length > 0) {
+      const song = songs[0];
+      return {
+        id: song.id,
+        name: song.name,
+        picUrl: song.al?.picUrl || '',
+        ar: (song.ar || []).map((a: any) => ({ id: a.id, name: a.name })),
+        al: { id: song.al?.id || 0, name: song.al?.name || '', picUrl: song.al?.picUrl || '' },
+        source: 'netease',
+        count: 0,
+      };
+    }
+  } catch (e) {
+    console.error('搜索失败:', keyword);
+  }
+  return null;
+}
+
+async function ensureResolved(song: SongResult): Promise<SongResult | null> {
+  if (!isPlaceholder(song)) return song;
+
+  const songStr = placeholderToSongStr(song);
+  const realSong = await resolvePlaceholder(songStr);
+
+  if (realSong) {
+    const list = [...playerStore.playList];
+    const idx = list.findIndex((s: SongResult) => String(s.id) === String(song.id));
+    if (idx !== -1) {
+      list[idx] = realSong;
+      playerStore.setPlayList(list, true);
+    }
+    return realSong;
+  }
+
+  message.warning(`未找到: ${songName}`);
+  return null;
+}
+
+let stopWatch: (() => void) | null = null;
 
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -233,9 +280,6 @@ async function fetchPlaylists() {
 
 async function searchAndPlay(songName: string, artist: string) {
   const keyword = artist ? `${songName} ${artist}` : songName;
-  showPlayingToast.value = true;
-  playingSongName.value = keyword;
-  searching.value = true;
 
   try {
     const { data } = await getSearch({ keywords: keyword, type: 1, limit: 5 });
@@ -253,27 +297,12 @@ async function searchAndPlay(songName: string, artist: string) {
         count: 0,
       };
 
-      playerStore.addToNextPlay(songResult);
-      if (!playerStore.playMusic?.id) {
-        await playTrack(songResult, true);
-      }
-      searching.value = false;
-      setTimeout(() => {
-        showPlayingToast.value = false;
-      }, 1500);
+      await playTrack(songResult, true);
     } else {
-      searching.value = false;
       message.warning(`未找到: ${keyword}`);
-      setTimeout(() => {
-        showPlayingToast.value = false;
-      }, 1500);
     }
   } catch (e) {
-    searching.value = false;
     message.error(`搜索失败: ${keyword}`);
-    setTimeout(() => {
-      showPlayingToast.value = false;
-    }, 1500);
   }
 }
 
@@ -283,63 +312,21 @@ function playSong(songStr: string) {
   searchAndPlay(songName, artist);
 }
 
-async function searchSingleSong(songName: string, artist: string): Promise<SongResult | null> {
-  const keyword = artist ? `${songName} ${artist}` : songName;
-  try {
-    const { data } = await getSearch({ keywords: keyword, type: 1, limit: 1 });
-    const songs = data?.result?.songs;
-    if (songs && songs.length > 0) {
-      const song = songs[0];
-      return {
-        id: song.id,
-        name: song.name,
-        picUrl: song.al?.picUrl || '',
-        ar: (song.ar || []).map((a: any) => ({ id: a.id, name: a.name })),
-        al: { id: song.al?.id || 0, name: song.al?.name || '', picUrl: song.al?.picUrl || '' },
-        source: 'netease',
-        count: 0,
-      };
-    }
-  } catch (e) {
-    console.error('搜索失败:', keyword);
-  }
-  return null;
-}
-
 async function playAll(pl: any) {
   if (pl.songs.length === 0) return;
 
-  batchProgress.value = { current: 0, total: pl.songs.length, active: true };
-  message.info(`正在搜索歌单中的 ${pl.songs.length} 首歌曲...`);
+  const placeholderList: SongResult[] = pl.songs.map((s: string) => makePlaceholderSong(s));
 
-  const playlist: SongResult[] = [];
+  playerStore.setPlayList(placeholderList, false);
 
-  for (let i = 0; i < pl.songs.length; i++) {
-    batchProgress.value.current = i + 1;
-    const songStr = pl.songs[i];
-    const songName = parseSongName(songStr);
-    const artist = parseArtist(songStr);
-
-    const result = await searchSingleSong(songName, artist);
-    if (result) {
-      playlist.push(result);
-    }
-
-    if (i < pl.songs.length - 1 && i % 5 === 4) {
-      await new Promise((r) => setTimeout(r, 300));
-    }
+  const firstSong = placeholderList[0];
+  const realSong = await ensureResolved(firstSong);
+  if (realSong) {
+    await playTrack(realSong, true);
+    message.success(`已加载歌单「${pl.name}」，共 ${pl.songs.length} 首，播放时自动搜索`);
+  } else {
+    playerStore.nextPlay();
   }
-
-  batchProgress.value.active = false;
-
-  if (playlist.length === 0) {
-    message.error('未搜索到任何歌曲');
-    return;
-  }
-
-  playerStore.setPlayList(playlist, false);
-  await playTrack(playlist[0], true);
-  message.success(`已加载 ${playlist.length} 首歌曲`);
 }
 
 function connectToServer() {
@@ -434,9 +421,27 @@ function disconnectWs() {
 onMounted(() => {
   const saved = localStorage.getItem('gomusic-server-url');
   if (saved) serverUrl.value = saved;
+
+  const stopWatcher = watch(
+    () => playerStore.playMusic,
+    async (song) => {
+      if (song && isPlaceholder(song) && playerStore.play) {
+        const realSong = await ensureResolved(song);
+        if (realSong) {
+          await playTrack(realSong, true);
+        } else {
+          playerStore.nextPlay();
+        }
+      }
+    },
+    { deep: true }
+  );
+
+  stopWatch = stopWatcher;
 });
 
 onUnmounted(() => {
+  if (stopWatch) stopWatch();
   if (reconnectTimer) clearTimeout(reconnectTimer);
   if (ws) ws.close();
 });
