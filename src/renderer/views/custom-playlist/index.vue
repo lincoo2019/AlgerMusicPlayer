@@ -226,8 +226,8 @@ async function searchAndPlay(songName: string, artist: string) {
   searching.value = true;
 
   try {
-    const res = await getSearch({ keywords: keyword, type: 1, limit: 5 });
-    const songs = res?.result?.songs;
+    const { data } = await getSearch({ keywords: keyword, type: 1, limit: 5 });
+    const songs = data?.result?.songs;
 
     if (songs && songs.length > 0) {
       const song = songs[0];
@@ -277,8 +277,8 @@ async function playAll(pl: any) {
 
   try {
     const keyword = artist ? `${songName} ${artist}` : songName;
-    const res = await getSearch({ keywords: keyword, type: 1, limit: 5 });
-    const songs = res?.result?.songs;
+    const { data } = await getSearch({ keywords: keyword, type: 1, limit: 5 });
+    const songs = data?.result?.songs;
 
     if (songs && songs.length > 0) {
       const song = songs[0];
