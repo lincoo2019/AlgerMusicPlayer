@@ -104,6 +104,17 @@ const layoutRouter = [
     component: () => import('@/views/local-music/index.vue')
   },
   {
+    path: '/custom-playlist',
+    name: 'customPlaylist',
+    meta: {
+      title: '自定义歌单',
+      icon: 'ri-playlist-2-fill',
+      keepAlive: true,
+      isMobile: true
+    },
+    component: () => import('@/views/custom-playlist/index.vue')
+  },
+  {
     path: '/user',
     name: 'user',
     meta: {
