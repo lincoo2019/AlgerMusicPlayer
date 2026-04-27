@@ -259,6 +259,10 @@ export default {
     },
     restart: '재시작',
     restartDesc: '앱 재시작',
+    gomusicUpload: 'Alist 자동 업로드',
+    gomusicUploadDesc: '재생 시 캐시된 음악을 Alist 서버에 자동 업로드 (GoMusic-Node 필요)',
+    gomusicServerUrl: 'GoMusic-Node 주소',
+    gomusicServerUrlDesc: 'Alist 업로드 중계에 사용되는 GoMusic-Node 서비스 주소',
     messages: {
       clearSuccess: '지우기 성공, 일부 설정은 재시작 후 적용됩니다',
       diskCacheClearSuccess: '디스크 캐시를 정리했습니다',

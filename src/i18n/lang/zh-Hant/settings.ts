@@ -251,6 +251,10 @@ export default {
     },
     restart: '重新啟動',
     restartDesc: '重新啟動應用程式',
+    gomusicUpload: '自動上傳到Alist',
+    gomusicUploadDesc: '播放音樂快取後自動上傳到Alist伺服器（需搭配GoMusic-Node）',
+    gomusicServerUrl: 'GoMusic-Node位址',
+    gomusicServerUrlDesc: 'GoMusic-Node服務位址，用於中轉上傳到Alist',
     messages: {
       clearSuccess: '清除成功，部分設定在重啟後生效',
       diskCacheClearSuccess: '磁碟快取已清理',

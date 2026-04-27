@@ -39,7 +39,7 @@
   "diskCacheDir": "",
   "diskCacheMaxSizeMB": 4096,
   "diskCacheCleanupPolicy": "lru",
-  "gomusicUploadEnabled": false,
+  "gomusicUploadEnabled": true,
   "gomusicUploadServerUrl": "http://localhost:8081",
   "gomusicUploadAuto": true
 }

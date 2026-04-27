@@ -102,6 +102,30 @@
       </template>
     </setting-item>
 
+    <setting-item
+      :title="t('settings.system.gomusicUpload')"
+      :description="t('settings.system.gomusicUploadDesc')"
+    >
+      <n-switch v-model:value="setData.gomusicUploadEnabled">
+        <template #checked>{{ t('common.on') }}</template>
+        <template #unchecked>{{ t('common.off') }}</template>
+      </n-switch>
+    </setting-item>
+
+    <setting-item
+      v-if="setData.gomusicUploadEnabled"
+      :title="t('settings.system.gomusicServerUrl')"
+      :description="t('settings.system.gomusicServerUrlDesc')"
+    >
+      <template #action>
+        <s-input
+          v-model="setData.gomusicUploadServerUrl"
+          placeholder="http://localhost:8081"
+          width="w-[200px] max-md:w-40"
+        />
+      </template>
+    </setting-item>
+
     <setting-item :title="t('settings.system.cache')" :description="t('settings.system.cacheDesc')">
       <s-btn @click="showClearCacheModal = true">{{ t('settings.system.cacheDesc') }}</s-btn>
     </setting-item>

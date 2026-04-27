@@ -22,7 +22,7 @@ type UploadQueueItem = {
 };
 
 const DEFAULT_CONFIG: GomusicUploadConfig = {
-  enabled: false,
+  enabled: true,
   serverUrl: 'http://localhost:8081',
   autoUpload: true
 };

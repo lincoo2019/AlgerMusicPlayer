@@ -255,6 +255,10 @@ export default {
     },
     restart: '重启',
     restartDesc: '重启应用',
+    gomusicUpload: '自动上传到Alist',
+    gomusicUploadDesc: '播放音乐缓存后自动上传到Alist服务器（需配合GoMusic-Node）',
+    gomusicServerUrl: 'GoMusic-Node地址',
+    gomusicServerUrlDesc: 'GoMusic-Node服务地址，用于中转上传到Alist',
     messages: {
       clearSuccess: '清除成功，部分设置在重启后生效',
       diskCacheClearSuccess: '磁盘缓存已清理',

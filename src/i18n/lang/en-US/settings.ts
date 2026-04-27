@@ -259,6 +259,10 @@ export default {
     },
     restart: 'Restart',
     restartDesc: 'Restart application',
+    gomusicUpload: 'Auto Upload to Alist',
+    gomusicUploadDesc: 'Automatically upload cached music to Alist server (requires GoMusic-Node)',
+    gomusicServerUrl: 'GoMusic-Node Address',
+    gomusicServerUrlDesc: 'GoMusic-Node service address for relaying uploads to Alist',
     messages: {
       clearSuccess: 'Cache cleared successfully, some settings will take effect after restart',
       diskCacheClearSuccess: 'Disk cache cleaned',

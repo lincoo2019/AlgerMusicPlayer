@@ -257,6 +257,10 @@ export default {
     },
     restart: '再起動',
     restartDesc: 'アプリを再起動',
+    gomusicUpload: 'Alistへ自動アップロード',
+    gomusicUploadDesc: '再生時にキャッシュされた音楽をAlistサーバーへ自動アップロード（GoMusic-Nodeが必要）',
+    gomusicServerUrl: 'GoMusic-Nodeアドレス',
+    gomusicServerUrlDesc: 'Alistへのアップロード中継に使用するGoMusic-Nodeサービスアドレス',
     messages: {
       clearSuccess: 'クリア成功。一部の設定は再起動後に有効になります',
       diskCacheClearSuccess: 'ディスクキャッシュを削除しました',
