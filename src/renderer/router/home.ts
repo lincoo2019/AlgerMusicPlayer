@@ -110,7 +110,8 @@ const layoutRouter = [
       title: '自定义歌单',
       icon: 'ri-playlist-2-fill',
       keepAlive: true,
-      isMobile: true
+      isMobile: true,
+      hideInSidebar: true
     },
     component: () => import('@/views/custom-playlist/index.vue')
   },

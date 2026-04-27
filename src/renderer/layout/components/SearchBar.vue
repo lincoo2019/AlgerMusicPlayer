@@ -292,6 +292,12 @@ const tabs = computed(() => {
       path: '/local-music',
       icon: 'ri-folder-music-fill',
       electronOnly: true
+    },
+    {
+      key: 'customPlaylist',
+      label: '自定义歌单',
+      path: '/custom-playlist',
+      icon: 'ri-playlist-2-fill'
     }
   ];
   return items.filter((tab) => !tab.electronOnly || isElectron);
