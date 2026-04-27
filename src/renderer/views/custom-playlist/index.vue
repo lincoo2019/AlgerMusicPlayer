@@ -159,6 +159,17 @@
         <i v-else class="ri-check-line text-green-500 text-lg ml-auto flex-shrink-0"></i>
       </div>
     </n-modal>
+
+    <n-modal v-model:show="batchProgress.active" :mask-closable="false" preset="card" class="!max-w-xs !rounded-2xl" :bordered="false">
+      <div class="flex items-center gap-3 py-2">
+        <n-spin :size="20" class="flex-shrink-0" />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-medium text-gray-900 dark:text-white">正在搜索歌单</p>
+          <p class="text-xs text-gray-400 mt-0.5">{{ batchProgress.current }} / {{ batchProgress.total }}</p>
+          <n-progress :percentage="Math.round((batchProgress.current / batchProgress.total) * 100)" :show-indicator="false" :height="4" :border-radius="2" class="mt-2" />
+        </div>
+      </div>
+    </n-modal>
   </div>
 </template>
 
@@ -182,6 +193,7 @@ const expandedIds = ref(new Set<number>());
 const showPlayingToast = ref(false);
 const playingSongName = ref('');
 const searching = ref(false);
+const batchProgress = ref({ current: 0, total: 0, active: false });
 
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -241,7 +253,10 @@ async function searchAndPlay(songName: string, artist: string) {
         count: 0,
       };
 
-      await playTrack(songResult, true);
+      playerStore.addToNextPlay(songResult);
+      if (!playerStore.playMusic?.id) {
+        await playTrack(songResult, true);
+      }
       searching.value = false;
       setTimeout(() => {
         showPlayingToast.value = false;
@@ -268,21 +283,14 @@ function playSong(songStr: string) {
   searchAndPlay(songName, artist);
 }
 
-async function playAll(pl: any) {
-  if (pl.songs.length === 0) return;
-
-  const firstSong = pl.songs[0];
-  const songName = parseSongName(firstSong);
-  const artist = parseArtist(firstSong);
-
+async function searchSingleSong(songName: string, artist: string): Promise<SongResult | null> {
+  const keyword = artist ? `${songName} ${artist}` : songName;
   try {
-    const keyword = artist ? `${songName} ${artist}` : songName;
-    const { data } = await getSearch({ keywords: keyword, type: 1, limit: 5 });
+    const { data } = await getSearch({ keywords: keyword, type: 1, limit: 1 });
     const songs = data?.result?.songs;
-
     if (songs && songs.length > 0) {
       const song = songs[0];
-      const songResult: SongResult = {
+      return {
         id: song.id,
         name: song.name,
         picUrl: song.al?.picUrl || '',
@@ -291,14 +299,47 @@ async function playAll(pl: any) {
         source: 'netease',
         count: 0,
       };
-
-      const playlist: SongResult[] = [songResult];
-      playerStore.setPlayList(playlist, false);
-      await playTrack(songResult, true);
     }
   } catch (e) {
-    message.error('播放失败');
+    console.error('搜索失败:', keyword);
   }
+  return null;
+}
+
+async function playAll(pl: any) {
+  if (pl.songs.length === 0) return;
+
+  batchProgress.value = { current: 0, total: pl.songs.length, active: true };
+  message.info(`正在搜索歌单中的 ${pl.songs.length} 首歌曲...`);
+
+  const playlist: SongResult[] = [];
+
+  for (let i = 0; i < pl.songs.length; i++) {
+    batchProgress.value.current = i + 1;
+    const songStr = pl.songs[i];
+    const songName = parseSongName(songStr);
+    const artist = parseArtist(songStr);
+
+    const result = await searchSingleSong(songName, artist);
+    if (result) {
+      playlist.push(result);
+    }
+
+    if (i < pl.songs.length - 1 && i % 5 === 4) {
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
+
+  batchProgress.value.active = false;
+
+  if (playlist.length === 0) {
+    message.error('未搜索到任何歌曲');
+    return;
+  }
+
+  playerStore.setPlayList(playlist, false);
+  await playTrack(playlist[0], true);
+  message.success(`已加载 ${playlist.length} 首歌曲`);
 }
 
 function connectToServer() {
