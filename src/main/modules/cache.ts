@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { getStore } from './config';
+import { queueGomusicUpload } from './gomusicUpload';
 
 type CacheCleanupPolicy = 'lru' | 'fifo';
 type CacheItemType = 'music' | 'lyrics';
@@ -855,6 +856,12 @@ class DiskCacheManager {
       this.setMusicEntries(entries);
 
       await this.enforceCacheLimit();
+
+      try {
+        queueGomusicUpload(filePath, payload.songId, payload.title, payload.artist);
+      } catch (uploadErr) {
+        console.warn(`[DiskCache] 触发GoMusic上传失败（不影响缓存）: ${payload.songId}`, uploadErr);
+      }
     } catch (error) {
       console.error(`缓存音乐失败: ${payload.songId}`, error);
       if (fs.existsSync(tempFilePath)) {

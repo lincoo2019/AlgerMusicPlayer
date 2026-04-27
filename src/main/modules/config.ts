@@ -32,6 +32,9 @@ type SetConfig = {
   diskCacheDir: string;
   diskCacheMaxSizeMB: number;
   diskCacheCleanupPolicy: 'lru' | 'fifo';
+  gomusicUploadEnabled: boolean;
+  gomusicUploadServerUrl: string;
+  gomusicUploadAuto: boolean;
 };
 interface StoreType {
   set: SetConfig;

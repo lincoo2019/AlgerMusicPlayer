@@ -10,6 +10,7 @@ import { initializeConfig } from './modules/config';
 import { initializeDownloadManager, setDownloadManagerWindow } from './modules/downloadManager';
 import { initializeFileManager } from './modules/fileManager';
 import { initializeFonts } from './modules/fonts';
+import { initializeGomusicUpload } from './modules/gomusicUpload';
 import { initializeLocalMusicScanner } from './modules/localMusicScanner';
 import { initializeLoginWindow } from './modules/loginWindow';
 import { initLxMusicHttp } from './modules/lxMusicHttp';
@@ -58,6 +59,8 @@ function initialize(configStore: any) {
   initializeLoginWindow();
   // 初始化本地音乐扫描模块
   initializeLocalMusicScanner();
+  // 初始化GoMusic上传模块
+  initializeGomusicUpload();
 
   // 创建主窗口
   mainWindow = createMainWindow(icon);

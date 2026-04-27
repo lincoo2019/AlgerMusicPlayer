@@ -118,7 +118,23 @@ const api = {
     ipcRenderer.removeAllListeners('download:state-change');
     ipcRenderer.removeAllListeners('download:batch-complete');
     ipcRenderer.removeAllListeners('download:request-url');
-  }
+  },
+
+  // GoMusic upload manager
+  gomusicUploadGetConfig: () =>
+    ipcRenderer.invoke('gomusic-upload:get-config'),
+  gomusicUploadUpdateConfig: (config: any) =>
+    ipcRenderer.invoke('gomusic-upload:update-config', config),
+  gomusicUploadGetStatus: () =>
+    ipcRenderer.invoke('gomusic-upload:get-status'),
+  gomusicUploadClearHistory: () =>
+    ipcRenderer.invoke('gomusic-upload:clear-history'),
+  gomusicUploadFile: (payload: {
+    filePath: string;
+    songId: number;
+    title?: string;
+    artist?: string;
+  }) => ipcRenderer.invoke('gomusic-upload:upload-file', payload)
 };
 
 // 创建带类型的ipcRenderer对象，暴露给渲染进程
