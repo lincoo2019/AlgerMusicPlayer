@@ -236,7 +236,7 @@ class GomusicUploadManager {
     await axios.post(`${serverUrl}/api/upload/buffer`, fileBuffer, {
       headers: {
         'Content-Type': 'application/octet-stream',
-        'x-filename': item.filename,
+        'x-filename': encodeURIComponent(item.filename),
         'Content-Length': fileBuffer.length
       },
       maxBodyLength: Infinity,
