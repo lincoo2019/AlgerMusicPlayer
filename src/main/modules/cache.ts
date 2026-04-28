@@ -886,6 +886,12 @@ class DiskCacheManager {
       existingEntry.urlHash === urlHash &&
       fs.existsSync(existingEntry.filePath)
     ) {
+      this.updateMusicAccess(key);
+      try {
+        queueGomusicUpload(existingEntry.filePath, payload.songId, payload.title || existingEntry.title, payload.artist || existingEntry.artist);
+      } catch (uploadErr) {
+        console.warn(`[DiskCache] 触发GoMusic上传失败（不影响缓存）: ${payload.songId}`, uploadErr);
+      }
       return;
     }
 
@@ -1017,6 +1023,15 @@ class DiskCacheManager {
 
     const cachedUrl = await this.getCachedMusicUrl(payload);
     if (cachedUrl) {
+      try {
+        const key = this.buildMusicKey(payload.songId, payload.source);
+        const entry = this.getMusicEntries()[key];
+        if (entry?.filePath) {
+          queueGomusicUpload(entry.filePath, payload.songId, payload.title || entry.title, payload.artist || entry.artist);
+        }
+      } catch (uploadErr) {
+        console.warn(`[DiskCache] 触发GoMusic上传失败（不影响缓存）: ${payload.songId}`, uploadErr);
+      }
       return {
         url: cachedUrl,
         cached: true,
