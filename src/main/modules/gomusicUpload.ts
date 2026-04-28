@@ -233,10 +233,12 @@ class GomusicUploadManager {
 
     const fileBuffer = fs.readFileSync(item.filePath);
 
+    const encodedFilename = Buffer.from(item.filename, 'utf-8').toString('latin1');
+
     await axios.post(`${serverUrl}/api/upload/buffer`, fileBuffer, {
       headers: {
         'Content-Type': 'application/octet-stream',
-        'x-filename': encodeURIComponent(item.filename),
+        'x-filename': encodedFilename,
         'Content-Length': fileBuffer.length
       },
       maxBodyLength: Infinity,
