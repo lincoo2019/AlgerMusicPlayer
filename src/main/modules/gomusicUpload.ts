@@ -89,19 +89,13 @@ class GomusicUploadManager {
     if (!store) return this.getConfig();
 
     if (partial.enabled !== undefined) store.set('set.gomusicUploadEnabled', partial.enabled);
-    if (partial.serverUrl !== undefined)
-      store.set('set.gomusicUploadServerUrl', partial.serverUrl);
+    if (partial.serverUrl !== undefined) store.set('set.gomusicUploadServerUrl', partial.serverUrl);
     if (partial.autoUpload !== undefined) store.set('set.gomusicUploadAuto', partial.autoUpload);
 
     return this.getConfig();
   }
 
-  queueUpload(
-    filePath: string,
-    songId: number,
-    title?: string,
-    artist?: string
-  ): void {
+  queueUpload(filePath: string, songId: number, title?: string, artist?: string): void {
     const config = this.getConfig();
     if (!config.enabled || !config.autoUpload) return;
 
@@ -115,9 +109,7 @@ class GomusicUploadManager {
       return;
     }
 
-    const existing = this.uploadQueue.find(
-      (item) => item.filePath === filePath
-    );
+    const existing = this.uploadQueue.find((item) => item.filePath === filePath);
     if (existing) return;
 
     const filename = this.buildFilename(filePath, title, artist);
@@ -131,18 +123,12 @@ class GomusicUploadManager {
       retries: 0
     });
 
-    console.log(
-      `[GomusicUpload] 队列添加: ${filename} (歌曲ID: ${songId})`
-    );
+    console.log(`[GomusicUpload] 队列添加: ${filename} (歌曲ID: ${songId})`);
 
     this.processQueue();
   }
 
-  private buildFilename(
-    filePath: string,
-    title?: string,
-    artist?: string
-  ): string {
+  private buildFilename(filePath: string, title?: string, artist?: string): string {
     const ext = path.extname(filePath);
     if (title) {
       const sanitized = title
@@ -150,7 +136,10 @@ class GomusicUploadManager {
         .replace(/\s+/g, ' ')
         .trim();
       const artistPart = artist
-        ? ` - ${artist.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim()}`
+        ? ` - ${artist
+            .replace(/[<>:"/\\|?*]/g, '_')
+            .replace(/\s+/g, ' ')
+            .trim()}`
         : '';
       return `${sanitized}${artistPart}${ext}`;
     }
@@ -158,10 +147,7 @@ class GomusicUploadManager {
   }
 
   private async processQueue(): Promise<void> {
-    while (
-      this.uploadQueue.length > 0 &&
-      this.activeUploads < UPLOAD_CONCURRENCY
-    ) {
+    while (this.uploadQueue.length > 0 && this.activeUploads < UPLOAD_CONCURRENCY) {
       const item = this.uploadQueue.shift();
       if (!item) break;
 
@@ -181,15 +167,12 @@ class GomusicUploadManager {
           if (success) {
             this.uploadedFiles.add(fileKey);
             this.persistUploadedFiles();
-            console.log(
-              `[GomusicUpload] 上传成功: ${item.filename}`
-            );
+            console.log(`[GomusicUpload] 上传成功: ${item.filename}`);
           }
         })
         .catch((err) => {
-          console.error(
-            `[GomusicUpload] 上传失败: ${item.filename} - ${err.message}`
-          );
+          const errMsg = err?.response?.data?.msg || err?.message || String(err);
+          console.error(`[GomusicUpload] 上传失败: ${item.filename} - ${errMsg}`);
 
           if (item.retries < MAX_RETRIES) {
             item.retries++;
@@ -214,6 +197,7 @@ class GomusicUploadManager {
 
     const serverUrl = config.serverUrl.replace(/\/+$/, '');
 
+    // 检查文件是否已存在（轻量请求，仍走 GoMusic-Node）
     try {
       const checkRes = await axios.post(
         `${serverUrl}/api/upload/check`,
@@ -222,31 +206,82 @@ class GomusicUploadManager {
       );
 
       if (checkRes.data?.data?.exists) {
-        console.log(
-          `[GomusicUpload] 文件已存在于Alist，跳过: ${item.filename}`
-        );
+        console.log(`[GomusicUpload] 文件已存在于Alist，跳过: ${item.filename}`);
         return true;
       }
     } catch {
       // 检查失败不阻止上传
     }
 
+    // 从 GoMusic-Node 获取 Alist 直传凭证
+    const { alistServerUrl, token, uploadPath } = await this.getDirectCredentials(serverUrl);
+
+    // 直接上传到 Alist 服务器，文件不经过 GoMusic-Node
     const fileBuffer = fs.readFileSync(item.filePath);
+    const remoteDir = uploadPath || '/music';
+    const targetPath = remoteDir.endsWith('/')
+      ? remoteDir + item.filename
+      : remoteDir + '/' + item.filename;
+    const encodedPath = Buffer.from(targetPath, 'utf-8').toString('latin1');
 
-    const encodedFilename = Buffer.from(item.filename, 'utf-8').toString('latin1');
-
-    await axios.post(`${serverUrl}/api/upload/buffer`, fileBuffer, {
-      headers: {
-        'Content-Type': 'application/octet-stream',
-        'x-filename': encodedFilename,
-        'Content-Length': fileBuffer.length
-      },
-      maxBodyLength: Infinity,
-      maxContentLength: Infinity,
-      timeout: 120000
-    });
+    try {
+      await axios.put(`${alistServerUrl}/api/fs/put`, fileBuffer, {
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'File-Path': encodedPath,
+          Authorization: token,
+          'Content-Length': fileBuffer.length
+        },
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+        timeout: 120000
+      });
+    } catch (err: any) {
+      // Token 过期时重新获取凭证重试
+      const errMsg = (err?.response?.data?.message || '').toLowerCase();
+      if (errMsg.includes('token') && (errMsg.includes('invalid') || errMsg.includes('expir'))) {
+        console.log('[GomusicUpload] Alist Token 过期，重新获取凭证...');
+        const creds = await this.getDirectCredentials(serverUrl, true);
+        const retryTargetPath = (creds.uploadPath || '/music').endsWith('/')
+          ? creds.uploadPath + item.filename
+          : creds.uploadPath + '/' + item.filename;
+        await axios.put(`${creds.alistServerUrl}/api/fs/put`, fileBuffer, {
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'File-Path': Buffer.from(retryTargetPath, 'utf-8').toString('latin1'),
+            Authorization: creds.token,
+            'Content-Length': fileBuffer.length
+          },
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
+          timeout: 120000
+        });
+      } else {
+        throw err;
+      }
+    }
 
     return true;
+  }
+
+  private async getDirectCredentials(
+    serverUrl: string,
+    forceRefresh = false
+  ): Promise<{ alistServerUrl: string; token: string; uploadPath: string }> {
+    const url = forceRefresh
+      ? `${serverUrl}/api/upload/direct-credentials?refresh=1`
+      : `${serverUrl}/api/upload/direct-credentials`;
+
+    const res = await axios.get(url, { timeout: 10000 });
+    const data = res.data?.data;
+    if (!data?.serverUrl || !data?.token) {
+      throw new Error('获取 Alist 直传凭证失败');
+    }
+    return {
+      alistServerUrl: data.serverUrl,
+      token: data.token,
+      uploadPath: data.uploadPath || '/music'
+    };
   }
 
   private persistUploadedFiles(): void {
@@ -272,26 +307,15 @@ class GomusicUploadManager {
   }
 
   private registerIpcHandlers(): void {
-    ipcMain.handle(
-      'gomusic-upload:get-config',
-      () => this.getConfig()
+    ipcMain.handle('gomusic-upload:get-config', () => this.getConfig());
+
+    ipcMain.handle('gomusic-upload:update-config', (_, partial: Partial<GomusicUploadConfig>) =>
+      this.updateConfig(partial)
     );
 
-    ipcMain.handle(
-      'gomusic-upload:update-config',
-      (_, partial: Partial<GomusicUploadConfig>) =>
-        this.updateConfig(partial)
-    );
+    ipcMain.handle('gomusic-upload:get-status', () => this.getQueueStatus());
 
-    ipcMain.handle(
-      'gomusic-upload:get-status',
-      () => this.getQueueStatus()
-    );
-
-    ipcMain.handle(
-      'gomusic-upload:clear-history',
-      () => this.clearUploadedHistory()
-    );
+    ipcMain.handle('gomusic-upload:clear-history', () => this.clearUploadedHistory());
 
     ipcMain.handle(
       'gomusic-upload:upload-file',
@@ -304,12 +328,7 @@ class GomusicUploadManager {
           artist?: string;
         }
       ) => {
-        this.queueUpload(
-          payload.filePath,
-          payload.songId,
-          payload.title,
-          payload.artist
-        );
+        this.queueUpload(payload.filePath, payload.songId, payload.title, payload.artist);
         return true;
       }
     );
