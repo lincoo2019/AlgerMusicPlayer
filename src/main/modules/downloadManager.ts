@@ -17,7 +17,9 @@ import type {
   DownloadTask,
   DownloadTaskState
 } from '../../shared/download';
+import { mergeLyricsForEmbedding, parseLyricsForEmbedding } from '../../shared/lyricParser';
 import { getStore } from './config';
+import { queueGomusicUpload } from './gomusicUpload';
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -26,48 +28,6 @@ function sanitizeFilename(filename: string): string {
     .replace(/[<>:"/\\|?*]/g, '_')
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-function parseLyrics(lyricsText: string): Map<string, string> {
-  const lyricMap = new Map<string, string>();
-  const lines = lyricsText.split('\n');
-
-  for (const line of lines) {
-    const timeTagMatches = line.match(/\[\d{2}:\d{2}(\.\d{1,3})?\]/g);
-    if (!timeTagMatches) continue;
-
-    const content = line.replace(/\[\d{2}:\d{2}(\.\d{1,3})?\]/g, '').trim();
-    if (!content) continue;
-
-    for (const timeTag of timeTagMatches) {
-      lyricMap.set(timeTag, content);
-    }
-  }
-
-  return lyricMap;
-}
-
-function mergeLyrics(
-  originalLyrics: Map<string, string>,
-  translatedLyrics: Map<string, string>
-): string {
-  const mergedLines: string[] = [];
-
-  for (const [timeTag, originalContent] of originalLyrics.entries()) {
-    const translatedContent = translatedLyrics.get(timeTag);
-    mergedLines.push(`${timeTag}${originalContent}`);
-    if (translatedContent) {
-      mergedLines.push(`${timeTag}${translatedContent}`);
-    }
-  }
-
-  mergedLines.sort((a, b) => {
-    const timeA = a.match(/\[\d{2}:\d{2}(\.\d{1,3})?\]/)?.[0] || '';
-    const timeB = b.match(/\[\d{2}:\d{2}(\.\d{1,3})?\]/)?.[0] || '';
-    return timeA.localeCompare(timeB);
-  });
-
-  return mergedLines.join('\n');
 }
 
 // ─── Batch tracker entry ─────────────────────────────────────────────
@@ -524,7 +484,7 @@ class DownloadManager {
         // Full response (200) - start from beginning
         task.loaded = 0;
         const contentLength = response.headers['content-length'];
-        task.total = contentLength ? parseInt(contentLength, 10) : 0;
+        task.total = contentLength ? parseInt(String(contentLength), 10) : 0;
       }
 
       // Create write stream
@@ -660,23 +620,36 @@ class DownloadManager {
     task.finalFilePath = finalFilePath;
 
     // Download lyrics
-    let lyricsContent = '';
+    let lyricsContent = ''; // LRC format for .lrc file
+    let lyricsPlainText = ''; // Plain text for USLT embedding
+    let lyricsTimedLines: Array<{ text: string; startTimeMs: number }> = []; // For SYLT
     let lyricData = null;
     try {
       if (task.songInfo?.id) {
         const lyricsResponse = await axios.get(
           `http://localhost:${apiPort}/lyric?id=${task.songInfo.id}`
         );
-        if (lyricsResponse.data && (lyricsResponse.data.lrc || lyricsResponse.data.tlyric)) {
+        if (
+          lyricsResponse.data &&
+          (lyricsResponse.data.lrc || lyricsResponse.data.tlyric || lyricsResponse.data.yrc)
+        ) {
           lyricData = lyricsResponse.data;
 
-          if (lyricsResponse.data.lrc && lyricsResponse.data.lrc.lyric) {
-            lyricsContent = lyricsResponse.data.lrc.lyric;
+          // 优先使用 yrc（逐字歌词），回退到 lrc
+          const rawLrc = lyricsResponse.data.yrc?.lyric || lyricsResponse.data.lrc?.lyric || '';
+          if (rawLrc) {
+            const originalResult = parseLyricsForEmbedding(rawLrc);
 
-            if (lyricsResponse.data.tlyric && lyricsResponse.data.tlyric.lyric) {
-              const originalLyrics = parseLyrics(lyricsResponse.data.lrc.lyric);
-              const translatedLyrics = parseLyrics(lyricsResponse.data.tlyric.lyric);
-              lyricsContent = mergeLyrics(originalLyrics, translatedLyrics);
+            if (lyricsResponse.data.tlyric?.lyric) {
+              const translationResult = parseLyricsForEmbedding(lyricsResponse.data.tlyric.lyric);
+              const merged = mergeLyricsForEmbedding(originalResult, translationResult);
+              lyricsContent = merged.lrcText;
+              lyricsPlainText = merged.plainText;
+              lyricsTimedLines = merged.timedLines;
+            } else {
+              lyricsContent = originalResult.lrcText;
+              lyricsPlainText = originalResult.plainText;
+              lyricsTimedLines = originalResult.timedLines;
             }
           }
         }
@@ -749,7 +722,7 @@ class DownloadManager {
       try {
         NodeID3.removeTags(finalFilePath);
 
-        const tags = {
+        const tags: any = {
           title: info?.name,
           artist: artistNames,
           TPE1: artistNames,
@@ -761,14 +734,30 @@ class DownloadManager {
             description: 'Album cover',
             mime: 'image/jpeg'
           },
-          USLT: {
+          unsynchronisedLyrics: {
             language: 'chi',
-            description: 'Lyrics',
-            text: lyricsContent || ''
+            shortText: '',
+            text: lyricsPlainText || ''
           },
           trackNumber: info?.no || undefined,
           year: info?.publishTime ? new Date(info.publishTime).getFullYear().toString() : undefined
         };
+
+        // Write SYLT (synchronised lyrics) alongside USLT
+        if (lyricsTimedLines.length > 0) {
+          tags.synchronisedLyrics = [
+            {
+              language: 'chi',
+              timeStampFormat: 2, // MILLISECONDS
+              contentType: 1, // LYRICS
+              shortText: '',
+              synchronisedText: lyricsTimedLines.map((line) => ({
+                text: line.text,
+                timeStamp: line.startTimeMs
+              }))
+            }
+          ];
+        }
 
         const success = NodeID3.write(tags, finalFilePath);
         if (!success) {
@@ -783,7 +772,7 @@ class DownloadManager {
           TITLE: info?.name,
           ARTIST: artistNames,
           ALBUM: info?.al?.name || info?.song?.album?.name || info?.name || task.filename,
-          LYRICS: lyricsContent || '',
+          LYRICS: lyricsPlainText || '',
           TRACKNUMBER: info?.no ? String(info.no) : '',
           DATE: info?.publishTime ? new Date(info.publishTime).getFullYear().toString() : ''
         };
@@ -838,6 +827,17 @@ class DownloadManager {
 
     songInfos[finalFilePath] = newSongInfo;
     configStore.set('downloadedSongs', songInfos);
+
+    // Auto upload to Alist after download (lyrics already embedded above)
+    try {
+      if (task.songInfo?.id && finalFilePath) {
+        const artistNames =
+          (info?.ar || info?.song?.artists)?.map((a: any) => a.name).join('\u3001') || undefined;
+        queueGomusicUpload(finalFilePath, task.songInfo.id, info?.name, artistNames);
+      }
+    } catch (uploadError) {
+      console.error('Failed to queue gomusic upload:', uploadError);
+    }
 
     // Update task state
     task.state = 'completed';

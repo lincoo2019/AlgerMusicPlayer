@@ -149,6 +149,107 @@
                   </button>
                 </div>
               </div>
+
+              <!-- GoMusic 歌单内容 -->
+              <div v-if="currentTab === 'gomusic'" class="p-6 space-y-4 animate-fade-in">
+                <!-- 未登录提示 -->
+                <div v-if="!gomusicLoggedIn && !gomusicLoading" class="text-center py-8">
+                  <i
+                    class="ri-cloud-off-line text-4xl text-gray-300 dark:text-gray-600 mb-3 block"
+                  ></i>
+                  <p class="text-gray-500 dark:text-gray-400 mb-1">
+                    {{ gomusicError || '请先在设置中登录 GoMusic-Node' }}
+                  </p>
+                  <div class="flex items-center justify-center gap-3 mt-3">
+                    <button
+                      class="px-4 py-2 rounded-xl bg-primary/10 text-primary text-sm font-medium hover:bg-primary/20 transition-colors"
+                      @click="$router.push('/set')"
+                    >
+                      前往设置
+                    </button>
+                    <button
+                      class="px-4 py-2 rounded-xl bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-300 text-sm font-medium hover:bg-gray-200 dark:hover:bg-white/20 transition-colors"
+                      @click="loadGomusicPlaylists"
+                    >
+                      重试
+                    </button>
+                  </div>
+                </div>
+                <!-- 加载中 -->
+                <div v-else-if="gomusicLoading" class="text-center py-8">
+                  <i class="ri-loader-4-line animate-spin text-3xl text-primary mb-3 block"></i>
+                  <p class="text-gray-500 dark:text-gray-400">加载中...</p>
+                </div>
+                <!-- 空歌单 -->
+                <div v-else-if="gomusicPlaylists.length === 0" class="text-center py-8">
+                  <i
+                    class="ri-play-list-line text-4xl text-gray-300 dark:text-gray-600 mb-3 block"
+                  ></i>
+                  <p class="text-gray-500 dark:text-gray-400">
+                    暂无歌单，请先在 GoMusic-Node 网页上导入歌单
+                  </p>
+                </div>
+                <!-- 歌单列表 -->
+                <div v-else class="space-y-3">
+                  <div
+                    v-for="pl in gomusicPlaylists"
+                    :key="pl.id"
+                    class="bg-gray-50 dark:bg-white/5 rounded-2xl p-4 hover:bg-gray-100 dark:hover:bg-white/10 transition-all cursor-pointer"
+                  >
+                    <div
+                      class="flex items-center justify-between"
+                      @click="toggleGomusicPlaylist(pl.id)"
+                    >
+                      <div class="flex items-center gap-3">
+                        <div
+                          class="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary"
+                        >
+                          <i class="ri-play-list-line text-lg"></i>
+                        </div>
+                        <div>
+                          <div class="font-medium text-gray-900 dark:text-white text-sm">
+                            {{ pl.name }}
+                          </div>
+                          <div class="text-xs text-gray-400 mt-0.5">{{ pl.songs_count }} 首</div>
+                        </div>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <button
+                          class="px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition-colors"
+                          @click.stop="importGomusicPlaylist(pl)"
+                        >
+                          导入
+                        </button>
+                        <i
+                          class="ri-arrow-down-s-line text-gray-400 transition-transform"
+                          :class="{ 'rotate-180': gomusicExpandedId === pl.id }"
+                        ></i>
+                      </div>
+                    </div>
+                    <!-- 展开的歌曲列表 -->
+                    <div
+                      v-if="gomusicExpandedId === pl.id"
+                      class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700"
+                    >
+                      <div
+                        v-if="gomusicPlaylistDetail?.songs?.length"
+                        class="max-h-60 overflow-y-auto space-y-1"
+                      >
+                        <div
+                          v-for="(song, idx) in gomusicPlaylistDetail.songs"
+                          :key="idx"
+                          class="flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 text-xs"
+                        >
+                          <span class="text-gray-400 w-6 text-right font-mono">{{ idx + 1 }}</span>
+                          <span class="text-gray-700 dark:text-gray-300 flex-1 truncate">{{
+                            song
+                          }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <!-- 帮助提示 (根据 Tab 变化) -->
@@ -319,7 +420,7 @@
 
 <script setup lang="ts">
 import { useMessage } from 'naive-ui';
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 import { getImportTaskStatus, importPlaylist } from '@/api/playlist';
@@ -332,17 +433,17 @@ const currentTab = ref('link');
 const tabs = computed(() => [
   { id: 'link', label: t('comp.playlist.import.linkTab'), icon: 'ri-link' },
   { id: 'text', label: t('comp.playlist.import.textTab'), icon: 'ri-text' },
-  { id: 'local', label: t('comp.playlist.import.localTab'), icon: 'ri-file-list-3-line' }
+  { id: 'local', label: t('comp.playlist.import.localTab'), icon: 'ri-file-list-3-line' },
+  { id: 'gomusic', label: 'GoMusic', icon: 'ri-cloud-line' }
 ]);
 
 // 计算 Tab 指示器位置
 const tabIndicatorStyle = computed(() => {
   const index = tabs.value.findIndex((tab) => tab.id === currentTab.value);
-  // 假设每个 tab 宽度大概一致，这里简单计算百分比
-  // 在真实项目中可能需要获取 DOM 元素宽度
+  const count = tabs.value.length;
   return {
-    left: `calc(${(100 / 3) * index}% + 6px)`,
-    width: `calc(${100 / 3}% - 12px)`
+    left: `calc(${(100 / count) * index}% + 6px)`,
+    width: `calc(${100 / count}% - 12px)`
   };
 });
 
@@ -352,6 +453,59 @@ const textInput = ref('');
 const localMetadata = ref([{ name: '', artist: '', album: '' }]);
 const playlistName = ref('');
 const importToStarPlaylist = ref(false);
+
+// GoMusic 歌单相关
+const gomusicPlaylists = ref<any[]>([]);
+const gomusicLoading = ref(false);
+const gomusicLoggedIn = ref(false);
+const gomusicExpandedId = ref<number | null>(null);
+const gomusicPlaylistDetail = ref<any>(null);
+const gomusicError = ref('');
+
+const loadGomusicPlaylists = async () => {
+  gomusicLoading.value = true;
+  gomusicError.value = '';
+  try {
+    const playlists = await window.api.gomusicPlaylists();
+    gomusicPlaylists.value = playlists || [];
+    gomusicLoggedIn.value = true;
+  } catch (e: any) {
+    gomusicPlaylists.value = [];
+    const msg = e?.message || '';
+    if (msg.includes('未登录') || msg.includes('过期')) {
+      gomusicLoggedIn.value = false;
+      gomusicError.value = '登录已过期，请重新登录';
+    } else {
+      gomusicLoggedIn.value = false;
+      gomusicError.value = msg || '加载歌单失败';
+    }
+  } finally {
+    gomusicLoading.value = false;
+  }
+};
+
+const toggleGomusicPlaylist = async (id: number) => {
+  if (gomusicExpandedId.value === id) {
+    gomusicExpandedId.value = null;
+    gomusicPlaylistDetail.value = null;
+    return;
+  }
+  gomusicExpandedId.value = id;
+  try {
+    gomusicPlaylistDetail.value = await window.api.gomusicPlaylistDetail(id);
+  } catch {
+    gomusicPlaylistDetail.value = null;
+  }
+};
+
+const importGomusicPlaylist = (playlist: any) => {
+  // 将 GoMusic 歌单的歌曲导入为文本格式
+  const songs = playlist.songs || [];
+  textInput.value = songs.join('\n');
+  playlistName.value = playlist.name || '';
+  currentTab.value = 'text';
+  message.success(`已加载歌单: ${playlist.name} (${songs.length} 首)`);
+};
 
 // 链接相关函数
 const addLinkRow = () => {
@@ -492,6 +646,14 @@ const getStatusText = (status: string) => {
 
 onMounted(() => {
   if (taskId.value) startStatusCheck();
+  loadGomusicPlaylists();
+});
+
+// 切换到 GoMusic tab 时刷新歌单
+watch(currentTab, (tab) => {
+  if (tab === 'gomusic') {
+    loadGomusicPlaylists();
+  }
 });
 
 onUnmounted(() => {

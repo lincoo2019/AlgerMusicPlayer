@@ -121,20 +121,26 @@ const api = {
   },
 
   // GoMusic upload manager
-  gomusicUploadGetConfig: () =>
-    ipcRenderer.invoke('gomusic-upload:get-config'),
+  gomusicUploadGetConfig: () => ipcRenderer.invoke('gomusic-upload:get-config'),
   gomusicUploadUpdateConfig: (config: any) =>
     ipcRenderer.invoke('gomusic-upload:update-config', config),
-  gomusicUploadGetStatus: () =>
-    ipcRenderer.invoke('gomusic-upload:get-status'),
-  gomusicUploadClearHistory: () =>
-    ipcRenderer.invoke('gomusic-upload:clear-history'),
+  gomusicUploadGetStatus: () => ipcRenderer.invoke('gomusic-upload:get-status'),
+  gomusicUploadClearHistory: () => ipcRenderer.invoke('gomusic-upload:clear-history'),
   gomusicUploadFile: (payload: {
     filePath: string;
     songId: number;
     title?: string;
     artist?: string;
-  }) => ipcRenderer.invoke('gomusic-upload:upload-file', payload)
+  }) => ipcRenderer.invoke('gomusic-upload:upload-file', payload),
+  gomusicLogin: (serverUrl: string, username: string, password: string) =>
+    ipcRenderer.invoke('gomusic-upload:login', serverUrl, username, password),
+  gomusicRegister: (serverUrl: string, username: string, password: string) =>
+    ipcRenderer.invoke('gomusic-upload:register', serverUrl, username, password),
+  gomusicProfile: () => ipcRenderer.invoke('gomusic-upload:profile'),
+  gomusicLogout: () => ipcRenderer.invoke('gomusic-upload:logout'),
+  gomusicPlaylists: () => ipcRenderer.invoke('gomusic-upload:playlists'),
+  gomusicPlaylistDetail: (playlistId: number) =>
+    ipcRenderer.invoke('gomusic-upload:playlist-detail', playlistId)
 };
 
 // 创建带类型的ipcRenderer对象，暴露给渲染进程

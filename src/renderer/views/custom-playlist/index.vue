@@ -1,13 +1,9 @@
 <template>
   <div class="custom-playlist-page h-full flex flex-col">
-    <div
-      class="flex items-center justify-between px-6 py-4 flex-shrink-0 animate__fadeInLeft"
-    >
+    <div class="flex items-center justify-between px-6 py-4 flex-shrink-0 animate__fadeInLeft">
       <div class="flex items-center gap-4">
         <div>
-          <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
-            🎵 自定义歌单
-          </h2>
+          <h2 class="text-2xl font-bold text-gray-900 dark:text-white">🎵 自定义歌单</h2>
           <p class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
             从 GoMusic-Node 服务器同步的歌单
           </p>
@@ -30,7 +26,9 @@
           {{ wsConnected ? '已连接' : '未连接' }}
         </div>
 
-        <div class="flex items-center bg-gray-100 dark:bg-neutral-800 rounded-lg overflow-hidden h-9">
+        <div
+          class="flex items-center bg-gray-100 dark:bg-neutral-800 rounded-lg overflow-hidden h-9"
+        >
           <input
             v-model="serverUrl"
             type="text"
@@ -66,7 +64,10 @@
         <n-spin size="large" />
       </div>
 
-      <div v-else-if="playlists.length === 0" class="flex flex-col items-center justify-center py-20 text-gray-400">
+      <div
+        v-else-if="playlists.length === 0"
+        class="flex flex-col items-center justify-center py-20 text-gray-400"
+      >
         <i class="ri-music-2-line text-6xl mb-4"></i>
         <p class="text-lg">暂无歌单</p>
         <p class="text-sm mt-2">请在 GoMusic-Node 中导入歌单后刷新</p>
@@ -85,11 +86,19 @@
             <div class="flex items-center gap-3">
               <div
                 class="w-10 h-10 rounded-xl flex items-center justify-center"
-                :class="pl.source === 'qqmusic' ? 'bg-blue-100 dark:bg-blue-900/30' : 'bg-red-100 dark:bg-red-900/30'"
+                :class="
+                  pl.source === 'qqmusic'
+                    ? 'bg-blue-100 dark:bg-blue-900/30'
+                    : 'bg-red-100 dark:bg-red-900/30'
+                "
               >
                 <i
                   class="text-lg"
-                  :class="pl.source === 'qqmusic' ? 'ri-qq-line text-blue-500' : 'ri-netease-cloud-music-line text-red-500'"
+                  :class="
+                    pl.source === 'qqmusic'
+                      ? 'ri-qq-line text-blue-500'
+                      : 'ri-netease-cloud-music-line text-red-500'
+                  "
                 ></i>
               </div>
               <div>
@@ -131,14 +140,20 @@
                 class="flex items-center gap-3 px-5 py-2.5 hover:bg-gray-50 dark:hover:bg-neutral-800/50 cursor-pointer group transition-colors"
                 @click="playSong(song)"
               >
-                <span class="w-7 text-right text-xs text-gray-400 flex-shrink-0">{{ idx + 1 }}</span>
+                <span class="w-7 text-right text-xs text-gray-400 flex-shrink-0">{{
+                  idx + 1
+                }}</span>
                 <div class="flex-1 min-w-0">
-                  <p class="text-sm text-gray-900 dark:text-white truncate group-hover:text-primary transition-colors">
+                  <p
+                    class="text-sm text-gray-900 dark:text-white truncate group-hover:text-primary transition-colors"
+                  >
                     {{ parseSongName(song) }}
                   </p>
                   <p class="text-xs text-gray-400 truncate">{{ parseArtist(song) }}</p>
                 </div>
-                <i class="ri-play-fill text-primary opacity-0 group-hover:opacity-100 transition-opacity"></i>
+                <i
+                  class="ri-play-fill text-primary opacity-0 group-hover:opacity-100 transition-opacity"
+                ></i>
               </div>
             </div>
           </div>
@@ -149,8 +164,8 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue';
 import { useMessage } from 'naive-ui';
+import { onMounted, onUnmounted, ref, watch } from 'vue';
 
 import { getSearch } from '@/api/search';
 import { playTrack } from '@/services/playbackController';
@@ -188,10 +203,10 @@ function makePlaceholderSong(songStr: string): SongResult {
     id: makePlaceholderId(songStr),
     name: songName,
     picUrl: '',
-    ar: artist ? [{ id: 0, name: artist }] : [],
-    al: { id: 0, name: '', picUrl: '' },
+    ar: artist ? [{ id: 0, name: artist }] : ([] as any),
+    al: { id: 0, name: '', picUrl: '' } as any,
     source: 'netease',
-    count: 0,
+    count: 0
   };
 }
 
@@ -209,13 +224,17 @@ async function resolvePlaceholder(songStr: string): Promise<SongResult | null> {
         id: song.id,
         name: song.name,
         picUrl: song.al?.picUrl || '',
-        ar: (song.ar || []).map((a: any) => ({ id: a.id, name: a.name })),
-        al: { id: song.al?.id || 0, name: song.al?.name || '', picUrl: song.al?.picUrl || '' },
+        ar: (song.ar || []).map((a: any) => ({ id: a.id, name: a.name })) as any,
+        al: {
+          id: song.al?.id || 0,
+          name: song.al?.name || '',
+          picUrl: song.al?.picUrl || ''
+        } as any,
         source: 'netease',
-        count: 0,
+        count: 0
       };
     }
-  } catch (e) {
+  } catch {
     console.error('搜索失败:', keyword);
   }
   return null;
@@ -272,6 +291,8 @@ let stopWatch: (() => void) | null = null;
 
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let wsRetryCount = 0;
+const WS_MAX_RETRIES = 5;
 
 function parseSongName(songStr: string): string {
   const parts = songStr.split(' - ');
@@ -294,13 +315,10 @@ function toggleExpand(id: number) {
 async function fetchPlaylists() {
   loading.value = true;
   try {
-    const res = await fetch(`${serverUrl.value}/api/playlists`);
-    const data = await res.json();
-    if (data.code === 1) {
-      playlists.value = data.data;
-    }
-  } catch (e) {
-    message.error('获取歌单失败，请检查服务器地址');
+    const data = await window.api.gomusicPlaylists();
+    playlists.value = data || [];
+  } catch (e: any) {
+    message.error(e?.message || '获取歌单失败，请检查是否已登录');
   } finally {
     loading.value = false;
   }
@@ -319,17 +337,21 @@ async function searchAndPlay(songName: string, artist: string) {
         id: song.id,
         name: song.name,
         picUrl: song.al?.picUrl || '',
-        ar: (song.ar || []).map((a: any) => ({ id: a.id, name: a.name })),
-        al: { id: song.al?.id || 0, name: song.al?.name || '', picUrl: song.al?.picUrl || '' },
+        ar: (song.ar || []).map((a: any) => ({ id: a.id, name: a.name })) as any,
+        al: {
+          id: song.al?.id || 0,
+          name: song.al?.name || '',
+          picUrl: song.al?.picUrl || ''
+        } as any,
         source: 'netease',
-        count: 0,
+        count: 0
       };
 
       await playTrack(songResult, true);
     } else {
       message.warning(`未找到: ${keyword}`);
     }
-  } catch (e) {
+  } catch {
     message.error(`搜索失败: ${keyword}`);
   }
 }
@@ -372,6 +394,7 @@ function connectToServer() {
 
     ws.onopen = () => {
       wsConnected.value = true;
+      wsRetryCount = 0;
       localStorage.setItem('gomusic-server-url', serverUrl.value);
       message.success('已连接到 GoMusic-Node 服务器');
       ws?.send(JSON.stringify({ type: 'register', device: 'AlgerMusicPlayer' }));
@@ -381,12 +404,14 @@ function connectToServer() {
     ws.onclose = () => {
       wsConnected.value = false;
       ws = null;
-      reconnectTimer = setTimeout(connectToServer, 5000);
+      if (wsRetryCount < WS_MAX_RETRIES) {
+        wsRetryCount++;
+        reconnectTimer = setTimeout(connectToServer, 3000);
+      }
     };
 
     ws.onerror = () => {
       wsConnected.value = false;
-      message.error('WebSocket 连接失败');
     };
 
     ws.onmessage = (e) => {
@@ -428,7 +453,7 @@ function connectToServer() {
         console.error('WebSocket 消息处理失败:', err);
       }
     };
-  } catch (e) {
+  } catch {
     message.error('连接失败，请检查服务器地址');
   }
 }
@@ -446,9 +471,23 @@ function disconnectWs() {
   message.info('已断开连接');
 }
 
-onMounted(() => {
-  const saved = localStorage.getItem('gomusic-server-url');
-  if (saved) serverUrl.value = saved;
+onMounted(async () => {
+  // 从 electron-store 配置中读取服务器地址
+  try {
+    const config = await window.api.gomusicUploadGetConfig();
+    if (config?.serverUrl) {
+      serverUrl.value = config.serverUrl;
+    }
+    // 如果已登录，自动加载歌单并连接 WebSocket
+    if (config?.authToken) {
+      fetchPlaylists();
+      connectToServer();
+    }
+  } catch {
+    // 未配置，使用默认值
+    const saved = localStorage.getItem('gomusic-server-url');
+    if (saved) serverUrl.value = saved;
+  }
 
   const stopWatcher = watch(
     () => playerStore.playMusic?.id,

@@ -113,7 +113,6 @@
     </setting-item>
 
     <setting-item
-      v-if="setData.gomusicUploadEnabled"
       :title="t('settings.system.gomusicServerUrl')"
       :description="t('settings.system.gomusicServerUrlDesc')"
     >
@@ -125,6 +124,65 @@
         />
       </template>
     </setting-item>
+
+    <setting-item
+      :title="t('settings.system.gomusicAccount')"
+      :description="t('settings.system.gomusicAccountDesc')"
+    >
+      <template #action>
+        <div v-if="gomusicUser" class="flex items-center gap-2">
+          <n-tag type="success" size="small">{{ gomusicUser.username }}</n-tag>
+          <s-btn @click="gomusicLogout">{{ t('settings.system.gomusicLogout') }}</s-btn>
+        </div>
+        <div v-else class="flex items-center gap-2">
+          <s-btn @click="showGomusicLoginModal = true">{{
+            t('settings.system.gomusicLogin')
+          }}</s-btn>
+        </div>
+      </template>
+    </setting-item>
+
+    <!-- GoMusic 登录弹窗 -->
+    <n-modal
+      v-model:show="showGomusicLoginModal"
+      preset="card"
+      :title="
+        gomusicIsRegister ? t('settings.system.gomusicRegister') : t('settings.system.gomusicLogin')
+      "
+      style="max-width: 400px; width: 90%"
+    >
+      <n-form @submit.prevent="gomusicAuth">
+        <n-form-item :label="t('settings.system.gomusicUsername')">
+          <n-input
+            v-model:value="gomusicUsername"
+            :placeholder="t('settings.system.gomusicUsernamePlaceholder')"
+          />
+        </n-form-item>
+        <n-form-item :label="t('settings.system.gomusicPassword')">
+          <n-input
+            v-model:value="gomusicPassword"
+            type="password"
+            :placeholder="t('settings.system.gomusicPasswordPlaceholder')"
+          />
+        </n-form-item>
+        <div class="flex justify-between items-center mt-4">
+          <n-button text @click="gomusicIsRegister = !gomusicIsRegister">
+            {{
+              gomusicIsRegister
+                ? t('settings.system.gomusicHasAccount')
+                : t('settings.system.gomusicNoAccount')
+            }}
+          </n-button>
+          <n-button type="primary" :loading="gomusicAuthLoading" @click="gomusicAuth">
+            {{
+              gomusicIsRegister
+                ? t('settings.system.gomusicRegister')
+                : t('settings.system.gomusicLogin')
+            }}
+          </n-button>
+        </div>
+      </n-form>
+    </n-modal>
 
     <setting-item :title="t('settings.system.cache')" :description="t('settings.system.cacheDesc')">
       <s-btn @click="showClearCacheModal = true">{{ t('settings.system.cacheDesc') }}</s-btn>
@@ -194,6 +252,66 @@ const message = inject(SETTINGS_MESSAGE_KEY)!;
 const dialog = inject(SETTINGS_DIALOG_KEY)!;
 
 const showClearCacheModal = ref(false);
+
+// GoMusic 登录相关
+const showGomusicLoginModal = ref(false);
+const gomusicIsRegister = ref(false);
+const gomusicUsername = ref('');
+const gomusicPassword = ref('');
+const gomusicAuthLoading = ref(false);
+const gomusicUser = ref<{ id: number; username: string } | null>(null);
+
+const gomusicAuth = async () => {
+  if (!gomusicUsername.value || !gomusicPassword.value) {
+    message.warning(t('settings.system.gomusicUsernamePlaceholder'));
+    return;
+  }
+  const serverUrl = setData.value.gomusicUploadServerUrl || 'http://localhost:8081';
+  gomusicAuthLoading.value = true;
+  try {
+    const fn = gomusicIsRegister.value ? window.api.gomusicRegister : window.api.gomusicLogin;
+    const result = await fn(serverUrl, gomusicUsername.value, gomusicPassword.value);
+    gomusicUser.value = result.user;
+    showGomusicLoginModal.value = false;
+    gomusicUsername.value = '';
+    gomusicPassword.value = '';
+    message.success(
+      gomusicIsRegister.value
+        ? t('settings.system.gomusicRegisterSuccess')
+        : t('settings.system.gomusicLoginSuccess')
+    );
+  } catch (e: any) {
+    message.error(
+      e.message ||
+        (gomusicIsRegister.value
+          ? t('settings.system.gomusicRegisterFailed')
+          : t('settings.system.gomusicLoginFailed'))
+    );
+  } finally {
+    gomusicAuthLoading.value = false;
+  }
+};
+
+const gomusicLogout = async () => {
+  try {
+    await window.api.gomusicLogout();
+    gomusicUser.value = null;
+    message.success(t('settings.system.gomusicLogoutSuccess'));
+  } catch (e: any) {
+    message.error(e.message);
+  }
+};
+
+const checkGomusicAuth = async () => {
+  try {
+    if (setData.value.gomusicUploadServerUrl) {
+      const profile = await window.api.gomusicProfile();
+      gomusicUser.value = profile;
+    }
+  } catch {
+    gomusicUser.value = null;
+  }
+};
 const diskCacheStats = ref<DiskCacheStats>({
   enabled: true,
   directory: '',
@@ -519,5 +637,6 @@ const restartApp = () => {
 onMounted(async () => {
   await loadDiskCacheConfig();
   await refreshDiskCacheStats();
+  await checkGomusicAuth();
 });
 </script>

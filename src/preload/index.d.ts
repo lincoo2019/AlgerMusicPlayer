@@ -63,6 +63,14 @@ interface API {
   onDownloadBatchComplete: (cb: (data: any) => void) => void;
   onDownloadRequestUrl: (cb: (data: any) => void) => void;
   removeDownloadListeners: () => void;
+  // GoMusic
+  gomusicUploadGetConfig: () => Promise<any>;
+  gomusicRegister: (serverUrl: string, username: string, password: string) => Promise<any>;
+  gomusicLogin: (serverUrl: string, username: string, password: string) => Promise<any>;
+  gomusicLogout: () => Promise<void>;
+  gomusicProfile: () => Promise<any>;
+  gomusicPlaylists: () => Promise<any>;
+  gomusicPlaylistDetail: (id: string | number) => Promise<any>;
 }
 
 // 自定义IPC渲染进程通信接口

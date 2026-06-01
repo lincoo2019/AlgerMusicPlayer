@@ -35,6 +35,7 @@ type SetConfig = {
   gomusicUploadEnabled: boolean;
   gomusicUploadServerUrl: string;
   gomusicUploadAuto: boolean;
+  gomusicUploadAuthToken: string;
 };
 interface StoreType {
   set: SetConfig;

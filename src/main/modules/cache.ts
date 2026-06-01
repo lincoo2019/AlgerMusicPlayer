@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as NodeID3 from 'node-id3';
 import * as path from 'path';
 
+import { mergeLyricsForEmbedding, parseLyricsForEmbedding } from '../../shared/lyricParser';
 import { getStore } from './config';
 import { queueGomusicUpload } from './gomusicUpload';
 
@@ -785,6 +786,19 @@ class DiskCacheManager {
     const albumName = payload.albumName || payload.title;
     const fileFormat = extension.toLowerCase();
 
+    // Fetch lyrics
+    let lyricsContent = '';
+    let lyricsTimedLines: Array<{ text: string; startTimeMs: number }> = [];
+    try {
+      const lyricResult = await this.fetchLyricsForEmbedding(payload.songId);
+      if (lyricResult) {
+        lyricsContent = lyricResult.plainText;
+        lyricsTimedLines = lyricResult.timedLines;
+      }
+    } catch (lyricErr) {
+      console.warn(`[DiskCache] 获取歌词失败: ${payload.songId}`, lyricErr);
+    }
+
     let coverImageBuffer: Buffer | null = null;
     if (payload.picUrl) {
       try {
@@ -821,6 +835,28 @@ class DiskCacheManager {
             mime: 'image/jpeg'
           };
         }
+        if (lyricsContent) {
+          tags.unsynchronisedLyrics = {
+            language: 'chi',
+            shortText: '',
+            text: lyricsContent
+          };
+        }
+        // Write SYLT (synchronised lyrics) alongside USLT
+        if (lyricsTimedLines.length > 0) {
+          tags.synchronisedLyrics = [
+            {
+              language: 'chi',
+              timeStampFormat: 2, // MILLISECONDS
+              contentType: 1, // LYRICS
+              shortText: '',
+              synchronisedText: lyricsTimedLines.map((line) => ({
+                text: line.text,
+                timeStamp: line.startTimeMs
+              }))
+            }
+          ];
+        }
         NodeID3.write(tags, filePath);
       } catch (err) {
         console.warn(`[DiskCache] 写入ID3标签失败:`, err);
@@ -832,12 +868,13 @@ class DiskCacheManager {
           ARTIST: artistNames,
           ALBUM: albumName
         };
+        if (lyricsContent) {
+          tagMap.LYRICS = lyricsContent;
+        }
         await writeFlacTags(
           {
             tagMap,
-            picture: coverImageBuffer
-              ? { buffer: coverImageBuffer, mime: 'image/jpeg' }
-              : undefined
+            picture: coverImageBuffer ? { buffer: coverImageBuffer, mime: 'image/jpeg' } : undefined
           },
           filePath
         );
@@ -845,6 +882,54 @@ class DiskCacheManager {
         console.warn(`[DiskCache] 写入FLAC标签失败:`, err);
       }
     }
+  }
+
+  /**
+   * Fetch lyrics for embedding, supporting both YRC and LRC formats
+   */
+  private async fetchLyricsForEmbedding(songId: number): Promise<{
+    plainText: string;
+    timedLines: Array<{ text: string; startTimeMs: number }>;
+  } | null> {
+    // Try cached lyric first
+    const cachedLyric = await this.getCachedLyric(songId);
+    if (cachedLyric && typeof cachedLyric === 'object') {
+      const lyricObj = cachedLyric as {
+        yrc?: { lyric?: string };
+        lrc?: { lyric?: string };
+        tlyric?: { lyric?: string };
+      };
+      const rawLrc = lyricObj.yrc?.lyric || lyricObj.lrc?.lyric;
+      if (rawLrc) {
+        const originalResult = parseLyricsForEmbedding(rawLrc);
+        if (lyricObj.tlyric?.lyric) {
+          const translationResult = parseLyricsForEmbedding(lyricObj.tlyric.lyric);
+          return mergeLyricsForEmbedding(originalResult, translationResult);
+        }
+        return originalResult;
+      }
+    }
+
+    // Fallback: fetch from API
+    const configStore = getStore();
+    const apiPort = configStore.get('set.musicApiPort') || 30488;
+    try {
+      const lyricsResponse = await axios.get(`http://localhost:${apiPort}/lyric?id=${songId}`);
+      const data = lyricsResponse.data;
+      const rawLrc = data?.yrc?.lyric || data?.lrc?.lyric;
+      if (rawLrc) {
+        const originalResult = parseLyricsForEmbedding(rawLrc);
+        if (data?.tlyric?.lyric) {
+          const translationResult = parseLyricsForEmbedding(data.tlyric.lyric);
+          return mergeLyricsForEmbedding(originalResult, translationResult);
+        }
+        return originalResult;
+      }
+    } catch {
+      // API fetch failed
+    }
+
+    return null;
   }
 
   private async getCachedMusicUrl(payload: ResolveMusicUrlPayload): Promise<string | null> {
@@ -888,7 +973,12 @@ class DiskCacheManager {
     ) {
       this.updateMusicAccess(key);
       try {
-        queueGomusicUpload(existingEntry.filePath, payload.songId, payload.title || existingEntry.title, payload.artist || existingEntry.artist);
+        queueGomusicUpload(
+          existingEntry.filePath,
+          payload.songId,
+          payload.title || existingEntry.title,
+          payload.artist || existingEntry.artist
+        );
       } catch (uploadErr) {
         console.warn(`[DiskCache] 触发GoMusic上传失败（不影响缓存）: ${payload.songId}`, uploadErr);
       }
@@ -1027,7 +1117,12 @@ class DiskCacheManager {
         const key = this.buildMusicKey(payload.songId, payload.source);
         const entry = this.getMusicEntries()[key];
         if (entry?.filePath) {
-          queueGomusicUpload(entry.filePath, payload.songId, payload.title || entry.title, payload.artist || entry.artist);
+          queueGomusicUpload(
+            entry.filePath,
+            payload.songId,
+            payload.title || entry.title,
+            payload.artist || entry.artist
+          );
         }
       } catch (uploadErr) {
         console.warn(`[DiskCache] 触发GoMusic上传失败（不影响缓存）: ${payload.songId}`, uploadErr);

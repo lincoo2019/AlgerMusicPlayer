@@ -10,6 +10,7 @@ type GomusicUploadConfig = {
   enabled: boolean;
   serverUrl: string;
   autoUpload: boolean;
+  authToken: string;
 };
 
 type UploadQueueItem = {
@@ -24,7 +25,8 @@ type UploadQueueItem = {
 const DEFAULT_CONFIG: GomusicUploadConfig = {
   enabled: true,
   serverUrl: 'http://localhost:8081',
-  autoUpload: true
+  autoUpload: true,
+  authToken: ''
 };
 
 const MAX_RETRIES = 3;
@@ -35,7 +37,8 @@ class GomusicUploadManager {
   private uploadQueue: UploadQueueItem[] = [];
   private activeUploads = 0;
   private uploadedFiles = new Set<string>();
-  private configStore: Store | null = null;
+
+  private configStore: any = null;
   private persistStore: Store<{ uploadedFiles: string[] }>;
 
   constructor() {
@@ -53,9 +56,9 @@ class GomusicUploadManager {
     this.registerIpcHandlers();
   }
 
-  private getConfigStore(): Store | null {
+  private getConfigStore() {
     if (!this.configStore) {
-      this.configStore = getStore() || null;
+      this.configStore = getStore();
     }
     return this.configStore;
   }
@@ -80,7 +83,8 @@ class GomusicUploadManager {
     return {
       enabled: Boolean(store?.get('set.gomusicUploadEnabled') ?? DEFAULT_CONFIG.enabled),
       serverUrl: String(store?.get('set.gomusicUploadServerUrl') ?? DEFAULT_CONFIG.serverUrl),
-      autoUpload: Boolean(store?.get('set.gomusicUploadAuto') ?? DEFAULT_CONFIG.autoUpload)
+      autoUpload: Boolean(store?.get('set.gomusicUploadAuto') ?? DEFAULT_CONFIG.autoUpload),
+      authToken: String(store?.get('set.gomusicUploadAuthToken') ?? DEFAULT_CONFIG.authToken)
     };
   }
 
@@ -91,6 +95,7 @@ class GomusicUploadManager {
     if (partial.enabled !== undefined) store.set('set.gomusicUploadEnabled', partial.enabled);
     if (partial.serverUrl !== undefined) store.set('set.gomusicUploadServerUrl', partial.serverUrl);
     if (partial.autoUpload !== undefined) store.set('set.gomusicUploadAuto', partial.autoUpload);
+    if (partial.authToken !== undefined) store.set('set.gomusicUploadAuthToken', partial.authToken);
 
     return this.getConfig();
   }
@@ -98,6 +103,13 @@ class GomusicUploadManager {
   queueUpload(filePath: string, songId: number, title?: string, artist?: string): void {
     const config = this.getConfig();
     if (!config.enabled || !config.autoUpload) return;
+
+    if (!config.authToken) {
+      console.warn(
+        `[GomusicUpload] 未登录 GoMusic-Node，跳过上传: ${path.basename(filePath)}。请在设置中登录。`
+      );
+      return;
+    }
 
     if (!fs.existsSync(filePath)) {
       console.warn(`[GomusicUpload] 文件不存在，跳过: ${filePath}`);
@@ -196,13 +208,17 @@ class GomusicUploadManager {
     }
 
     const serverUrl = config.serverUrl.replace(/\/+$/, '');
+    const authHeaders: Record<string, string> = {};
+    if (config.authToken) {
+      authHeaders['Authorization'] = `Bearer ${config.authToken}`;
+    }
 
-    // 检查文件是否已存在（轻量请求，仍走 GoMusic-Node）
+    // 检查文件是否已存在
     try {
       const checkRes = await axios.post(
         `${serverUrl}/api/upload/check`,
         { filename: item.filename },
-        { timeout: 10000 }
+        { timeout: 10000, headers: authHeaders }
       );
 
       if (checkRes.data?.data?.exists) {
@@ -216,7 +232,7 @@ class GomusicUploadManager {
     // 从 GoMusic-Node 获取 Alist 直传凭证
     const { alistServerUrl, token, uploadPath } = await this.getDirectCredentials(serverUrl);
 
-    // 直接上传到 Alist 服务器，文件不经过 GoMusic-Node
+    // 直接上传到 Alist 服务器
     const fileBuffer = fs.readFileSync(item.filePath);
     const remoteDir = uploadPath || '/music';
     const targetPath = remoteDir.endsWith('/')
@@ -237,7 +253,6 @@ class GomusicUploadManager {
         timeout: 120000
       });
     } catch (err: any) {
-      // Token 过期时重新获取凭证重试
       const errMsg = (err?.response?.data?.message || '').toLowerCase();
       if (errMsg.includes('token') && (errMsg.includes('invalid') || errMsg.includes('expir'))) {
         console.log('[GomusicUpload] Alist Token 过期，重新获取凭证...');
@@ -268,20 +283,40 @@ class GomusicUploadManager {
     serverUrl: string,
     forceRefresh = false
   ): Promise<{ alistServerUrl: string; token: string; uploadPath: string }> {
+    const config = this.getConfig();
     const url = forceRefresh
       ? `${serverUrl}/api/upload/direct-credentials?refresh=1`
       : `${serverUrl}/api/upload/direct-credentials`;
 
-    const res = await axios.get(url, { timeout: 10000 });
-    const data = res.data?.data;
-    if (!data?.serverUrl || !data?.token) {
-      throw new Error('获取 Alist 直传凭证失败');
+    const headers: Record<string, string> = {};
+    if (config.authToken) {
+      headers['Authorization'] = `Bearer ${config.authToken}`;
     }
-    return {
-      alistServerUrl: data.serverUrl,
-      token: data.token,
-      uploadPath: data.uploadPath || '/music'
-    };
+
+    try {
+      const res = await axios.get(url, { timeout: 10000, headers });
+      const data = res.data?.data;
+      if (!data?.serverUrl || !data?.token) {
+        throw new Error(res.data?.msg || '获取 Alist 直传凭证失败');
+      }
+      return {
+        alistServerUrl: data.serverUrl,
+        token: data.token,
+        uploadPath: data.uploadPath || '/music'
+      };
+    } catch (err: any) {
+      const msg = err?.response?.data?.msg || err?.message || '未知错误';
+      // 如果是 Alist 登录失败，给出更清晰的提示
+      if (msg.includes('unsuccessful sign-in') || msg.includes('incorrect username or password')) {
+        throw new Error(
+          'Alist 登录失败：用户名或密码错误，请在 GoMusic-Node 网页上更新 Alist 配置'
+        );
+      }
+      if (msg.includes('请先登录') || err?.response?.status === 401) {
+        throw new Error('GoMusic-Node 登录已过期，请在设置中重新登录');
+      }
+      throw new Error(`获取凭证失败: ${msg}`);
+    }
   }
 
   private persistUploadedFiles(): void {
@@ -332,6 +367,98 @@ class GomusicUploadManager {
         return true;
       }
     );
+
+    // GoMusic 登录
+    ipcMain.handle(
+      'gomusic-upload:login',
+      async (_, serverUrl: string, username: string, password: string) => {
+        const url = `${serverUrl.replace(/\/+$/, '')}/api/auth/login`;
+        const res = await axios.post(url, { username, password }, { timeout: 10000 });
+        if (res.data?.code === 1 && res.data?.data?.token) {
+          this.updateConfig({
+            serverUrl: serverUrl.replace(/\/+$/, ''),
+            authToken: res.data.data.token
+          });
+          console.log(`[GomusicUpload] 登录成功: ${username}, token 已保存`);
+          return { success: true, user: res.data.data.user, token: res.data.data.token };
+        }
+        throw new Error(res.data?.msg || '登录失败');
+      }
+    );
+
+    // GoMusic 注册
+    ipcMain.handle(
+      'gomusic-upload:register',
+      async (_, serverUrl: string, username: string, password: string) => {
+        const url = `${serverUrl.replace(/\/+$/, '')}/api/auth/register`;
+        const res = await axios.post(url, { username, password }, { timeout: 10000 });
+        if (res.data?.code === 1 && res.data?.data?.token) {
+          this.updateConfig({
+            serverUrl: serverUrl.replace(/\/+$/, ''),
+            authToken: res.data.data.token
+          });
+          return { success: true, user: res.data.data.user, token: res.data.data.token };
+        }
+        throw new Error(res.data?.msg || '注册失败');
+      }
+    );
+
+    // GoMusic 获取用户信息
+    ipcMain.handle('gomusic-upload:profile', async () => {
+      const config = this.getConfig();
+      if (!config.serverUrl || !config.authToken) {
+        throw new Error('未登录');
+      }
+      const url = `${config.serverUrl.replace(/\/+$/, '')}/api/auth/profile`;
+      const res = await axios.get(url, {
+        timeout: 10000,
+        headers: { Authorization: `Bearer ${config.authToken}` }
+      });
+      if (res.data?.code === 1) {
+        return res.data.data;
+      }
+      throw new Error(res.data?.msg || '获取用户信息失败');
+    });
+
+    // GoMusic 登出
+    ipcMain.handle('gomusic-upload:logout', () => {
+      this.updateConfig({ authToken: '' });
+      return true;
+    });
+
+    // GoMusic 获取歌单列表
+    ipcMain.handle('gomusic-upload:playlists', async () => {
+      const config = this.getConfig();
+      if (!config.serverUrl || !config.authToken) {
+        throw new Error('未登录');
+      }
+      const url = `${config.serverUrl.replace(/\/+$/, '')}/api/playlists`;
+      const res = await axios.get(url, {
+        timeout: 10000,
+        headers: { Authorization: `Bearer ${config.authToken}` }
+      });
+      if (res.data?.code === 1) {
+        return res.data.data;
+      }
+      throw new Error(res.data?.msg || '获取歌单失败');
+    });
+
+    // GoMusic 获取单个歌单
+    ipcMain.handle('gomusic-upload:playlist-detail', async (_, playlistId: number) => {
+      const config = this.getConfig();
+      if (!config.serverUrl || !config.authToken) {
+        throw new Error('未登录');
+      }
+      const url = `${config.serverUrl.replace(/\/+$/, '')}/api/playlists/${playlistId}`;
+      const res = await axios.get(url, {
+        timeout: 10000,
+        headers: { Authorization: `Bearer ${config.authToken}` }
+      });
+      if (res.data?.code === 1) {
+        return res.data.data;
+      }
+      throw new Error(res.data?.msg || '获取歌单详情失败');
+    });
   }
 }
 

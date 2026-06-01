@@ -41,5 +41,6 @@
   "diskCacheCleanupPolicy": "lru",
   "gomusicUploadEnabled": true,
   "gomusicUploadServerUrl": "http://localhost:8081",
-  "gomusicUploadAuto": true
+  "gomusicUploadAuto": true,
+  "gomusicUploadAuthToken": ""
 }
