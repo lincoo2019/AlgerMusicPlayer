@@ -40,7 +40,7 @@
   "diskCacheMaxSizeMB": 4096,
   "diskCacheCleanupPolicy": "lru",
   "gomusicUploadEnabled": true,
-  "gomusicUploadServerUrl": "http://localhost:8081",
+  "gomusicUploadServerUrl": "https://play.suay.cn/",
   "gomusicUploadAuto": true,
   "gomusicUploadAuthToken": ""
 }

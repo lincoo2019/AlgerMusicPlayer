@@ -175,7 +175,7 @@ import type { SongResult } from '@/types/music';
 const message = useMessage();
 const playerStore = usePlayerStore();
 
-const serverUrl = ref('http://localhost:8081');
+const serverUrl = ref('https://play.suay.cn/');
 const wsConnected = ref(false);
 const loading = ref(false);
 const playlists = ref<any[]>([]);
@@ -313,12 +313,26 @@ function toggleExpand(id: number) {
 }
 
 async function fetchPlaylists() {
+  try {
+    const config = await window.api.gomusicUploadGetConfig();
+    if (!config?.authToken) {
+      message.warning('请先在设置中登录 GoMusic 账号');
+      return;
+    }
+  } catch {
+    message.warning('请先在设置中登录 GoMusic 账号');
+    return;
+  }
   loading.value = true;
   try {
     const data = await window.api.gomusicPlaylists();
     playlists.value = data || [];
   } catch (e: any) {
-    message.error(e?.message || '获取歌单失败，请检查是否已登录');
+    const msg = e?.message || '获取歌单失败';
+    message.error(msg);
+    if (msg.includes('过期') || msg.includes('未登录')) {
+      wsConnected.value = false;
+    }
   } finally {
     loading.value = false;
   }

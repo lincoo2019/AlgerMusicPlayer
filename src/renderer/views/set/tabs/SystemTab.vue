@@ -119,7 +119,7 @@
       <template #action>
         <s-input
           v-model="setData.gomusicUploadServerUrl"
-          placeholder="http://localhost:8081"
+          placeholder="https://play.suay.cn/"
           width="w-[200px] max-md:w-40"
         />
       </template>
@@ -266,12 +266,16 @@ const gomusicAuth = async () => {
     message.warning(t('settings.system.gomusicUsernamePlaceholder'));
     return;
   }
-  const serverUrl = setData.value.gomusicUploadServerUrl || 'http://localhost:8081';
+  const serverUrl = setData.value.gomusicUploadServerUrl || 'https://play.suay.cn/';
   gomusicAuthLoading.value = true;
   try {
     const fn = gomusicIsRegister.value ? window.api.gomusicRegister : window.api.gomusicLogin;
     const result = await fn(serverUrl, gomusicUsername.value, gomusicPassword.value);
     gomusicUser.value = result.user;
+    setData.value = {
+      ...setData.value,
+      gomusicUploadAuthToken: result.token
+    };
     showGomusicLoginModal.value = false;
     gomusicUsername.value = '';
     gomusicPassword.value = '';
@@ -296,6 +300,10 @@ const gomusicLogout = async () => {
   try {
     await window.api.gomusicLogout();
     gomusicUser.value = null;
+    setData.value = {
+      ...setData.value,
+      gomusicUploadAuthToken: ''
+    };
     message.success(t('settings.system.gomusicLogoutSuccess'));
   } catch (e: any) {
     message.error(e.message);

@@ -24,7 +24,7 @@ type UploadQueueItem = {
 
 const DEFAULT_CONFIG: GomusicUploadConfig = {
   enabled: true,
-  serverUrl: 'http://localhost:8081',
+  serverUrl: 'https://play.suay.cn/',
   autoUpload: true,
   authToken: ''
 };
@@ -409,15 +409,23 @@ class GomusicUploadManager {
       if (!config.serverUrl || !config.authToken) {
         throw new Error('未登录');
       }
-      const url = `${config.serverUrl.replace(/\/+$/, '')}/api/auth/profile`;
-      const res = await axios.get(url, {
-        timeout: 10000,
-        headers: { Authorization: `Bearer ${config.authToken}` }
-      });
-      if (res.data?.code === 1) {
-        return res.data.data;
+      try {
+        const url = `${config.serverUrl.replace(/\/+$/, '')}/api/auth/profile`;
+        const res = await axios.get(url, {
+          timeout: 10000,
+          headers: { Authorization: `Bearer ${config.authToken}` }
+        });
+        if (res.data?.code === 1) {
+          return res.data.data;
+        }
+        throw new Error(res.data?.msg || '获取用户信息失败');
+      } catch (err: any) {
+        if (err?.response?.status === 401) {
+          this.updateConfig({ authToken: '' });
+          throw new Error('登录已过期，请重新登录');
+        }
+        throw new Error(err?.response?.data?.msg || err?.message || '获取用户信息失败');
       }
-      throw new Error(res.data?.msg || '获取用户信息失败');
     });
 
     // GoMusic 登出
@@ -432,15 +440,23 @@ class GomusicUploadManager {
       if (!config.serverUrl || !config.authToken) {
         throw new Error('未登录');
       }
-      const url = `${config.serverUrl.replace(/\/+$/, '')}/api/playlists`;
-      const res = await axios.get(url, {
-        timeout: 10000,
-        headers: { Authorization: `Bearer ${config.authToken}` }
-      });
-      if (res.data?.code === 1) {
-        return res.data.data;
+      try {
+        const url = `${config.serverUrl.replace(/\/+$/, '')}/api/playlists`;
+        const res = await axios.get(url, {
+          timeout: 10000,
+          headers: { Authorization: `Bearer ${config.authToken}` }
+        });
+        if (res.data?.code === 1) {
+          return res.data.data;
+        }
+        throw new Error(res.data?.msg || '获取歌单失败');
+      } catch (err: any) {
+        if (err?.response?.status === 401) {
+          this.updateConfig({ authToken: '' });
+          throw new Error('登录已过期，请重新登录');
+        }
+        throw new Error(err?.response?.data?.msg || err?.message || '获取歌单失败');
       }
-      throw new Error(res.data?.msg || '获取歌单失败');
     });
 
     // GoMusic 获取单个歌单
@@ -449,15 +465,23 @@ class GomusicUploadManager {
       if (!config.serverUrl || !config.authToken) {
         throw new Error('未登录');
       }
-      const url = `${config.serverUrl.replace(/\/+$/, '')}/api/playlists/${playlistId}`;
-      const res = await axios.get(url, {
-        timeout: 10000,
-        headers: { Authorization: `Bearer ${config.authToken}` }
-      });
-      if (res.data?.code === 1) {
-        return res.data.data;
+      try {
+        const url = `${config.serverUrl.replace(/\/+$/, '')}/api/playlists/${playlistId}`;
+        const res = await axios.get(url, {
+          timeout: 10000,
+          headers: { Authorization: `Bearer ${config.authToken}` }
+        });
+        if (res.data?.code === 1) {
+          return res.data.data;
+        }
+        throw new Error(res.data?.msg || '获取歌单详情失败');
+      } catch (err: any) {
+        if (err?.response?.status === 401) {
+          this.updateConfig({ authToken: '' });
+          throw new Error('登录已过期，请重新登录');
+        }
+        throw new Error(err?.response?.data?.msg || err?.message || '获取歌单详情失败');
       }
-      throw new Error(res.data?.msg || '获取歌单详情失败');
     });
   }
 }
